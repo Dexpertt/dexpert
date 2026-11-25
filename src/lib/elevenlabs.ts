@@ -1,4 +1,5 @@
 import "server-only";
+import { GREETING_VAR, PROMPT_VAR } from "@/content/voice-agents";
 
 /**
  * Server-side helpers for the live ElevenLabs voice agent demo.
@@ -81,6 +82,25 @@ const overrides = {
 
 const agentPromises: Partial<Record<AgentKind, Promise<string>>> = {};
 
+/**
+ * The per-call prompt and greeting are sent as dynamic variables, which every agent accepts without
+ * extra settings. Only the language and voice use overrides.
+ */
+const agentConfig = (cfg: (typeof AGENTS)[AgentKind]) => ({
+  agent: {
+    first_message: `{{${GREETING_VAR}}}`,
+    language: cfg.language,
+    prompt: { prompt: `{{${PROMPT_VAR}}}` },
+    dynamic_variables: {
+      dynamic_variable_placeholders: {
+        [GREETING_VAR]: "Hi, thanks for calling. How can I help you today?",
+        [PROMPT_VAR]: "You are a friendly, professional receptionist on a phone call. Keep replies short and natural.",
+      },
+    },
+  },
+  tts: { voice_id: DEFAULT_VOICES.sarah, model_id: cfg.model },
+});
+
 async function findOrCreateAgent(kind: AgentKind): Promise<string> {
   const cfg = AGENTS[kind];
   let agentId = process.env[cfg.envId];
@@ -91,33 +111,34 @@ async function findOrCreateAgent(kind: AgentKind): Promise<string> {
     agentId = list.agents.find((a) => a.name === cfg.name)?.agent_id;
   }
   if (!agentId) {
-    const base = {
-      agent: {
-        first_message: "Hi, thanks for calling. How can I help you today?",
-        language: cfg.language,
-        prompt: { prompt: "You are a friendly, professional receptionist on a phone call. Keep replies short and natural." },
-      },
-      tts: { voice_id: DEFAULT_VOICES.sarah, model_id: cfg.model },
-    };
     const create = (conversation_config: object) =>
       el<{ agent_id: string }>("/v1/convai/agents/create", {
         method: "POST",
         body: JSON.stringify({ name: cfg.name, conversation_config, platform_settings: { overrides } }),
       });
     try {
-      agentId = (await create({ ...base, conversation: { max_duration_seconds: 330 } })).agent_id;
+      agentId = (await create({ ...agentConfig(cfg), conversation: { max_duration_seconds: 330 } })).agent_id;
     } catch (e) {
       // Retry with the bare minimum if the API rejected an optional field.
       if (!(e instanceof ElevenLabsError) || e.status !== 422) throw e;
       console.warn("[voice-session] create retry", e.detail);
-      agentId = (await create(base)).agent_id;
+      agentId = (await create(agentConfig(cfg))).agent_id;
     }
   }
-  // Make sure overrides are on (also repairs an agent edited by hand).
-  await el(`/v1/convai/agents/${agentId}`, {
-    method: "PATCH",
-    body: JSON.stringify({ platform_settings: { overrides } }),
-  });
+  // Agents are versioned: write the settings to the main branch, which is what live calls use.
+  // This also repairs an agent edited by hand.
+  const info = await el<{ main_branch_id?: string | null }>(`/v1/convai/agents/${agentId}`);
+  const branch = info.main_branch_id ? `?branch_id=${encodeURIComponent(info.main_branch_id)}` : "";
+  const body = { conversation_config: agentConfig(cfg), platform_settings: { overrides }, version_description: "Website demo settings" };
+  try {
+    await el(`/v1/convai/agents/${agentId}${branch}`, { method: "PATCH", body: JSON.stringify(body) });
+  } catch (e) {
+    if (!(e instanceof ElevenLabsError) || e.status !== 422) throw e;
+    console.warn("[voice-session] patch retry", e.detail);
+    const { version_description: _ignored, ...rest } = body;
+    void _ignored;
+    await el(`/v1/convai/agents/${agentId}${branch}`, { method: "PATCH", body: JSON.stringify(rest) });
+  }
   return agentId;
 }
 
@@ -172,7 +193,13 @@ export async function getDiagnostics() {
   const out: Record<string, unknown> = {};
   for (const kind of ["en", "multi"] as AgentKind[]) {
     const id = await getDemoAgentId(kind);
-    const agent = await el<{ platform_settings?: { overrides?: unknown }; conversation_config?: { tts?: { model_id?: string }; agent?: { language?: string } } }>(
+    const agent = await el<{
+      version_id?: string;
+      branch_id?: string;
+      main_branch_id?: string;
+      platform_settings?: { overrides?: unknown };
+      conversation_config?: { tts?: { model_id?: string }; agent?: { language?: string; first_message?: string } };
+    }>(
       `/v1/convai/agents/${id}`,
     );
     const list = await el<{ conversations: ConvSummary[] }>(`/v1/convai/conversations?agent_id=${id}&page_size=3`);
@@ -194,6 +221,10 @@ export async function getDiagnostics() {
     }
     out[kind] = {
       agentId: id,
+      version: agent.version_id,
+      branch: agent.branch_id,
+      mainBranch: agent.main_branch_id,
+      firstMessage: agent.conversation_config?.agent?.first_message,
       model: agent.conversation_config?.tts?.model_id,
       language: agent.conversation_config?.agent?.language,
       overrides: agent.platform_settings?.overrides,

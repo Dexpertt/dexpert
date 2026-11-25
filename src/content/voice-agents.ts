@@ -380,3 +380,7 @@ When they have everything they need, close warmly in one short sentence, for exa
 # Demo context
 This call is a live demo on the D Expert website, where business owners try out AI voice agents. Stay completely in character as ${industry.business} staff. Only if the person asks about the demo itself, the technology, or getting an assistant like you for their own business, say briefly that D Expert in New Delhi builds custom AI voice agents like this one and they can book a free call on the website, then offer to continue the role play.`;
 }
+
+/** Dynamic variable names the demo agents use for the per-call greeting and system prompt. */
+export const GREETING_VAR = "demo_greeting";
+export const PROMPT_VAR = "demo_prompt";

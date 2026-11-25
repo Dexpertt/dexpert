@@ -20,7 +20,9 @@ import {
   VolumeX,
 } from "lucide-react";
 import {
+  GREETING_VAR,
   MAX_CALL_SECONDS,
+  PROMPT_VAR,
   buildFirstMessage,
   buildPrompt,
   demoIndustries,
@@ -42,6 +44,9 @@ type Line = { role: "agent" | "user"; text: string; id: number };
 type Phase = "idle" | "connecting" | "live" | "ended";
 
 const fmt = (s: number) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+
+/** Close reason ElevenLabs sends when an agent refuses a per-call setting, e.g. "Override for field 'language' is not allowed by config." */
+const OVERRIDE_REFUSED = /Override for field '([\w.]+)'/i;
 
 const errorText: Record<string, string> = {
   mic: "We couldn't use your microphone. Please allow microphone access in your browser (look for the mic icon in the address bar) and press Call again.",
@@ -79,6 +84,9 @@ function DemoCenter() {
   const phaseRef = useRef<Phase>("idle");
   const transportRef = useRef<"webrtc" | "websocket">("webrtc");
   const retriedRef = useRef(false);
+  /** Override fields the agent refused; the call is retried without them. */
+  const droppedRef = useRef<Set<string>>(new Set());
+  const connectedAtRef = useRef(0);
   const startArgs = useRef<{ industry: DemoIndustry; voice: DemoVoice; language: DemoLanguage } | null>(null);
   const lineId = useRef(0);
   const transcriptRef = useRef<HTMLDivElement>(null);
@@ -101,11 +109,32 @@ function DemoCenter() {
 
   const conversation = useConversation({
     onConnect: () => {
+      connectedAtRef.current = Date.now();
       setP("live");
       setError(null);
     },
-    onDisconnect: () => {
-      if (phaseRef.current === "live") setP("ended");
+    onDisconnect: (details) => {
+      const p = phaseRef.current;
+      if (details.reason === "user" || (p !== "live" && p !== "connecting")) return;
+      const why = details.closeReason || ("message" in details ? details.message : "") || "";
+      const quick = p === "connecting" || Date.now() - connectedAtRef.current < 8000;
+      // The agent refused one of the per-call settings: retry once per field without it.
+      const refused = OVERRIDE_REFUSED.exec(why)?.[1];
+      if (refused && quick && !droppedRef.current.has(refused) && droppedRef.current.size < 3) {
+        console.warn("[voice demo] retrying without override:", refused);
+        droppedRef.current.add(refused);
+        setLines([]);
+        setP("connecting");
+        connectRef.current(transportRef.current);
+        return;
+      }
+      if (details.reason === "error" && quick) {
+        console.error("[voice demo] call closed:", why);
+        setError(errorText.generic);
+        setP("idle");
+        return;
+      }
+      if (p === "live") setP("ended");
     },
     onMessage: ({ message, role }) => {
       const text = message?.trim();
@@ -114,6 +143,7 @@ function DemoCenter() {
     },
     onError: (message) => {
       console.error("[voice demo]", message);
+      if (OVERRIDE_REFUSED.test(String(message))) return; // handled in onDisconnect
       // WebRTC can be blocked on some office/VPN networks: fall back to a WebSocket connection once.
       if (phaseRef.current === "connecting" && transportRef.current === "webrtc" && !retriedRef.current) {
         retriedRef.current = true;
@@ -147,18 +177,20 @@ function DemoCenter() {
           setP("idle");
           return;
         }
+        // The prompt and greeting go in as dynamic variables; language and voice as overrides.
+        const dropped = droppedRef.current;
         const overrides = {
-          agent: {
-            prompt: { prompt: buildPrompt(args.industry, args.voice, args.language) },
-            firstMessage: buildFirstMessage(args.industry, args.voice, args.language),
-            language: args.language.code,
-          },
-          tts: { voiceId: data.voiceId },
+          ...(dropped.has("language") ? {} : { agent: { language: args.language.code } }),
+          ...(dropped.has("voice_id") ? {} : { tts: { voiceId: data.voiceId } }),
+        };
+        const dynamicVariables = {
+          [GREETING_VAR]: buildFirstMessage(args.industry, args.voice, args.language),
+          [PROMPT_VAR]: buildPrompt(args.industry, args.voice, args.language),
         };
         if (data.conversationToken) {
-          startSession({ conversationToken: data.conversationToken, connectionType: "webrtc", overrides });
+          startSession({ conversationToken: data.conversationToken, connectionType: "webrtc", overrides, dynamicVariables });
         } else if (data.signedUrl) {
-          startSession({ signedUrl: data.signedUrl, connectionType: "websocket", overrides });
+          startSession({ signedUrl: data.signedUrl, connectionType: "websocket", overrides, dynamicVariables });
         }
       } catch {
         if (phaseRef.current === "connecting") {
@@ -190,6 +222,7 @@ function DemoCenter() {
     startArgs.current = { industry, voice, language };
     setCallArgs(startArgs.current);
     retriedRef.current = false;
+    droppedRef.current = new Set();
     setLines([]);
     setSeconds(0);
     setP("connecting");
