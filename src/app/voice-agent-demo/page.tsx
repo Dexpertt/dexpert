@@ -11,11 +11,11 @@ import { JsonLd } from "@/components/seo/json-ld";
 import { softwareToolSchema } from "@/lib/schema";
 
 export const metadata: Metadata = buildMetadata({
-  title: "AI Voice Agent Demo | Hear an AI Receptionist Handle Calls | D Expert",
+  title: "Live AI Voice Agent Demo | Talk to a Human-Like AI Receptionist | D Expert",
   description:
-    "Try live AI voice agent demos for a dental clinic, a restaurant and a real estate agency. Talk with your microphone or tap replies and see how AI handles missed and after-hours calls.",
+    "Call a live, human-sounding AI voice agent right from your browser. Pick your industry, a male or female voice and your language (English, Hindi, Spanish and more), then ask it anything.",
   path: "/voice-agent-demo",
-  keywords: ["AI voice agent demo", "AI receptionist demo", "AI phone answering", "missed call AI", "voice bot India"],
+  keywords: ["AI voice agent demo", "AI receptionist demo", "AI phone answering", "Hindi AI voice agent", "missed call AI", "voice bot India"],
 });
 
 const support = [
@@ -27,25 +27,26 @@ const support = [
 
 const faqs = [
   { q: "Will an AI voice agent replace my receptionist?", a: "No. We design voice agents to support your team: they answer missed, overflow and after-hours calls and take repetitive bookings off your staff's plate. Your people stay in charge of customers who need a human touch, and every agent can transfer a call to a person." },
-  { q: "Does it sound robotic?", a: "Production agents use natural, human-like voices with realistic pacing and can speak English, Hindi and Hinglish. This demo uses your browser's built-in voice so it works instantly without any sign-up." },
+  { q: "Does it sound robotic?", a: "No. The demo uses the same natural, human-like voices we deploy for clients, with realistic pacing, quick replies and the ability to be interrupted mid-sentence, just like a real conversation. For your business we can also use a voice with an Indian accent or clone a voice you choose." },
+  { q: "Which languages can it speak?", a: "This demo speaks English, Hindi, Spanish, French, German, Arabic, Portuguese and Italian. Production agents support 30+ languages, including natural Hinglish, and can switch language when a caller does." },
   { q: "Can it book into my existing calendar or CRM?", a: "Yes. We connect agents to Google Calendar, Calendly, practice-management and booking systems, and CRMs such as GoHighLevel, HubSpot and Zoho, so bookings and call notes appear where your team already works." },
   { q: "What happens if the AI doesn't know the answer?", a: "It says so politely, takes a message or transfers the call to a staff member. Agents only answer from information you approve, and we review transcripts regularly to improve them." },
   { q: "Can I keep my existing phone number?", a: "Yes. Most setups simply forward unanswered or after-hours calls to the agent, so your number and current phone system stay the same." },
-  { q: "Is my microphone audio recorded in this demo?", a: "No. Speech recognition runs in your browser to pick the matching reply, and nothing you say is stored or sent to D Expert." },
+  { q: "What happens to my voice during the demo?", a: "Your microphone audio is streamed securely to our voice AI provider only to run the live call, and the call ends automatically after five minutes. D Expert doesn't use demo calls for marketing or share them with anyone." },
 ];
 
 export default function Page() {
   return (
     <>
-      <JsonLd data={softwareToolSchema({ name: "D Expert AI Voice Agent Demo", description: "Interactive AI voice agent demos for dental clinics, restaurants and real estate agencies.", path: "/voice-agent-demo" })} />
+      <JsonLd data={softwareToolSchema({ name: "D Expert Live AI Voice Agent Demo", description: "Live, human-like AI voice agent demo calls for dental clinics, restaurants, real estate, salons, hotels, gyms, car service centres and sales teams, in eight languages.", path: "/voice-agent-demo" })} />
       <PageHero
         eyebrow="Live demo"
         title={
           <>
-            Hear an AI voice agent <span className="text-gradient-animated">handle real calls</span>
+            Talk to an AI voice agent <span className="text-gradient-animated">that sounds human</span>
           </>
         }
-        description="Pick a business, press call and talk to the AI assistant with your microphone, or let the demo play. See how missed and after-hours calls become booked appointments while your team stays focused on customers."
+        description="Choose your industry, pick a male or female voice and the language you want, then press call and talk with your microphone. Ask anything a real customer would: prices, timings, bookings, emergencies. It answers in real time."
         breadcrumbs={[
           { name: "AI Voice Agents", path: "/ai-voice-agents" },
           { name: "Voice Agent Demo", path: "/voice-agent-demo" },
