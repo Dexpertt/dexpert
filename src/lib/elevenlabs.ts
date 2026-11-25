@@ -164,3 +164,41 @@ export async function getVoicePreviewUrl(voiceId: string) {
   previewCache.set(voiceId, url);
   return url;
 }
+
+type ConvSummary = { conversation_id: string; status?: string; call_duration_secs?: number; message_count?: number; start_time_unix_secs?: number; call_successful?: string };
+
+/** Non-production diagnostics: the agents' override settings and the last few demo calls with how they ended. */
+export async function getDiagnostics() {
+  const out: Record<string, unknown> = {};
+  for (const kind of ["en", "multi"] as AgentKind[]) {
+    const id = await getDemoAgentId(kind);
+    const agent = await el<{ platform_settings?: { overrides?: unknown }; conversation_config?: { tts?: { model_id?: string }; agent?: { language?: string } } }>(
+      `/v1/convai/agents/${id}`,
+    );
+    const list = await el<{ conversations: ConvSummary[] }>(`/v1/convai/conversations?agent_id=${id}&page_size=3`);
+    const calls = [];
+    for (const c of list.conversations.slice(0, 3)) {
+      const d = await el<{ status?: string; metadata?: Record<string, unknown>; transcript?: { role: string; message?: string | null }[] }>(
+        `/v1/convai/conversations/${c.conversation_id}`,
+      );
+      const m = d.metadata ?? {};
+      calls.push({
+        id: c.conversation_id,
+        status: d.status,
+        started: c.start_time_unix_secs ? new Date(c.start_time_unix_secs * 1000).toISOString() : null,
+        duration: c.call_duration_secs,
+        termination_reason: m.termination_reason,
+        error: m.error,
+        transcript: (d.transcript ?? []).slice(0, 8).map((t) => `${t.role}: ${(t.message ?? "").slice(0, 140)}`),
+      });
+    }
+    out[kind] = {
+      agentId: id,
+      model: agent.conversation_config?.tts?.model_id,
+      language: agent.conversation_config?.agent?.language,
+      overrides: agent.platform_settings?.overrides,
+      calls,
+    };
+  }
+  return out;
+}

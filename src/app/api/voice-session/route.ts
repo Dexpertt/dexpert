@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import {
   explainError,
+  getDiagnostics,
   getConversationToken,
   getDemoAgentId,
   getSignedUrl,
@@ -50,6 +51,13 @@ function sameOrigin(req: NextRequest) {
  */
 export async function GET(req: NextRequest) {
   const configured = isVoiceDemoConfigured();
+  if (req.nextUrl.searchParams.get("debug") && process.env.VERCEL_ENV !== "production" && configured) {
+    try {
+      return NextResponse.json(await getDiagnostics());
+    } catch (e) {
+      return NextResponse.json({ problem: explainError(e) });
+    }
+  }
   if (req.nextUrl.searchParams.get("check")) {
     if (!configured) {
       return NextResponse.json({ ok: false, problem: "ELEVENLABS_API_KEY is not set for this deployment. Add it in Vercel (Production and Preview), then redeploy." });
