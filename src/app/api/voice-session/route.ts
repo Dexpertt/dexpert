@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import {
+  explainError,
   getConversationToken,
   getDemoAgentId,
   getSignedUrl,
@@ -42,9 +43,26 @@ function sameOrigin(req: NextRequest) {
   }
 }
 
-/** GET → { configured } or, with ?preview=<voice key>, { previewUrl } for the voice sample button. */
+/**
+ * GET → { configured }.
+ * GET ?check=1 → a real connection test with a plain-language result (open it in the browser to debug setup).
+ * GET ?preview=<voice key> → { previewUrl } for the voice sample button.
+ */
 export async function GET(req: NextRequest) {
   const configured = isVoiceDemoConfigured();
+  if (req.nextUrl.searchParams.get("check")) {
+    if (!configured) {
+      return NextResponse.json({ ok: false, problem: "ELEVENLABS_API_KEY is not set for this deployment. Add it in Vercel (Production and Preview), then redeploy." });
+    }
+    try {
+      const [en, multi] = await Promise.all([getDemoAgentId("en"), getDemoAgentId("multi")]);
+      await getConversationToken(en);
+      return NextResponse.json({ ok: true, message: "Live voice demo is ready.", agents: { english: en, multilingual: multi } });
+    } catch (e) {
+      console.error("[voice-session] check", e);
+      return NextResponse.json({ ok: false, problem: explainError(e) });
+    }
+  }
   const key = req.nextUrl.searchParams.get("preview");
   if (!key) return NextResponse.json({ configured });
   if (!configured) return NextResponse.json({ previewUrl: null });
@@ -66,7 +84,7 @@ export async function POST(req: NextRequest) {
   }
   if (!sameOrigin(req)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
-  let body: { voice?: string; transport?: string } = {};
+  let body: { voice?: string; transport?: string; language?: string } = {};
   try {
     body = await req.json();
   } catch {}
@@ -78,13 +96,13 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const agentId = await getDemoAgentId();
+    const agentId = await getDemoAgentId(body.language && body.language !== "en" ? "multi" : "en");
     if (body.transport === "websocket") {
       return NextResponse.json({ signedUrl: await getSignedUrl(agentId), voiceId });
     }
     return NextResponse.json({ conversationToken: await getConversationToken(agentId), voiceId });
   } catch (e) {
     console.error("[voice-session]", e);
-    return NextResponse.json({ error: "provider_error" }, { status: 502 });
+    return NextResponse.json({ error: "provider_error", detail: explainError(e) }, { status: 502 });
   }
 }

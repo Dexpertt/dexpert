@@ -104,14 +104,16 @@ All copy lives in `src/content/*.ts` and `src/lib/site.ts`. Search the project f
 1. Create an account at [elevenlabs.io](https://elevenlabs.io) and open **Developers → API keys**. Create a key (unrestricted is simplest; if you restrict it, allow ElevenLabs Agents write and Voices read).
 2. In Vercel → Project → Settings → Environment Variables, add `ELEVENLABS_API_KEY` for Production (and Preview if you like), then redeploy.
 
-On the first call the server finds or creates an agent called "D Expert Website Demo Agent" in your ElevenLabs account and switches on the per-call overrides it needs. You don't have to configure anything in the ElevenLabs dashboard.
+On the first call the server finds or creates two agents in your ElevenLabs account ("D Expert Website Demo Agent (English)" and "(Multilingual)", because ElevenLabs needs a different voice model for English and other languages) and switches on the per-call overrides they need. You don't have to configure anything in the ElevenLabs dashboard.
+
+**Check the setup:** open `https://<your-site>/api/voice-session?check=1`. It runs a real test and says in plain words what is wrong (key missing, key rejected, missing permission, no credits) or "Live voice demo is ready."
 
 Optional settings:
 
 | Variable | What it does |
 | --- | --- |
-| `ELEVENLABS_AGENT_ID` | Use an agent you created yourself instead of the auto-created one. |
-| `ELEVENLABS_TTS_MODEL` | Voice model. Default `eleven_flash_v2_5` (fast, multilingual). |
+| `ELEVENLABS_AGENT_ID`, `ELEVENLABS_AGENT_ID_MULTILINGUAL` | Use agents you created yourself instead of the auto-created ones. |
+| `ELEVENLABS_TTS_MODEL_EN`, `ELEVENLABS_TTS_MODEL` | Voice models for English (default `eleven_flash_v2`) and other languages (default `eleven_flash_v2_5`). |
 | `ELEVENLABS_VOICE_SARAH`, `_JESSICA`, `_ALICE`, `_CHRIS`, `_ERIC`, `_GEORGE` | Swap any voice for another ElevenLabs voice ID, for example an Indian-accent voice from the Voice Library. |
 | `VOICE_DEMO_CALLS_PER_HOUR` | Calls allowed per visitor per hour (default 12). |
 | `ELEVENLABS_API_BASE` | Regional API host, e.g. `https://api.in.residency.elevenlabs.io`. |

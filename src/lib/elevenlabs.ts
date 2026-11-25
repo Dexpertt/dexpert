@@ -3,14 +3,32 @@ import "server-only";
 /**
  * Server-side helpers for the live ElevenLabs voice agent demo.
  *
- * Only ELEVENLABS_API_KEY is required. On first use the server finds (or creates) one agent named
- * AGENT_NAME in the ElevenLabs account, enables per-call overrides on it, and then issues
+ * Only ELEVENLABS_API_KEY is required. On first use the server finds (or creates)
+ * the demo agents (English + multilingual) in the ElevenLabs account, enables per-call overrides, and then issues
  * short-lived conversation tokens. Each call passes its own prompt, greeting, language and voice.
  */
 
 const API = (process.env.ELEVENLABS_API_BASE || "https://api.elevenlabs.io").replace(/\/$/, "");
-const AGENT_NAME = "D Expert Website Demo Agent";
-const TTS_MODEL = process.env.ELEVENLABS_TTS_MODEL || "eleven_flash_v2_5";
+
+/**
+ * ElevenLabs requires English agents to use an English model and non-English agents a multilingual
+ * one, so the demo keeps two agents: one for English calls and one for every other language.
+ */
+export type AgentKind = "en" | "multi";
+const AGENTS: Record<AgentKind, { name: string; language: string; model: string; envId: string }> = {
+  en: {
+    name: "D Expert Website Demo Agent (English)",
+    language: "en",
+    model: process.env.ELEVENLABS_TTS_MODEL_EN || "eleven_flash_v2",
+    envId: "ELEVENLABS_AGENT_ID",
+  },
+  multi: {
+    name: "D Expert Website Demo Agent (Multilingual)",
+    language: "hi",
+    model: process.env.ELEVENLABS_TTS_MODEL || "eleven_flash_v2_5",
+    envId: "ELEVENLABS_AGENT_ID_MULTILINGUAL",
+  },
+};
 
 /** Default ElevenLabs voices (available in every account). Override any of them with ELEVENLABS_VOICE_<KEY>. */
 const DEFAULT_VOICES: Record<string, string> = {
@@ -23,7 +41,7 @@ const DEFAULT_VOICES: Record<string, string> = {
 };
 
 export function isVoiceDemoConfigured() {
-  return Boolean(process.env.ELEVENLABS_API_KEY);
+  return Boolean(process.env.ELEVENLABS_API_KEY?.trim());
 }
 
 export function resolveVoiceId(key: string): string | null {
@@ -31,15 +49,25 @@ export function resolveVoiceId(key: string): string | null {
   return process.env[`ELEVENLABS_VOICE_${key.toUpperCase()}`] || DEFAULT_VOICES[key];
 }
 
+export class ElevenLabsError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+    public detail: string,
+  ) {
+    super(message);
+  }
+}
+
 async function el<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API}${path}`, {
     ...init,
-    headers: { "xi-api-key": process.env.ELEVENLABS_API_KEY ?? "", "Content-Type": "application/json", ...init?.headers },
+    headers: { "xi-api-key": process.env.ELEVENLABS_API_KEY?.trim() ?? "", "Content-Type": "application/json", ...init?.headers },
     cache: "no-store",
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    throw new Error(`ElevenLabs ${init?.method ?? "GET"} ${path.split("?")[0]} failed (${res.status}): ${body.slice(0, 400)}`);
+    throw new ElevenLabsError(`ElevenLabs ${init?.method ?? "GET"} ${path.split("?")[0]} failed (${res.status})`, res.status, body.slice(0, 600));
   }
   return (await res.json()) as T;
 }
@@ -51,52 +79,70 @@ const overrides = {
   },
 };
 
-let agentPromise: Promise<string> | null = null;
+const agentPromises: Partial<Record<AgentKind, Promise<string>>> = {};
 
-async function findOrCreateAgent(): Promise<string> {
-  let agentId = process.env.ELEVENLABS_AGENT_ID;
+async function findOrCreateAgent(kind: AgentKind): Promise<string> {
+  const cfg = AGENTS[kind];
+  let agentId = process.env[cfg.envId];
   if (!agentId) {
     const list = await el<{ agents: { agent_id: string; name: string }[] }>(
-      `/v1/convai/agents?search=${encodeURIComponent(AGENT_NAME)}&page_size=30`,
+      `/v1/convai/agents?search=${encodeURIComponent(cfg.name)}&page_size=30`,
     );
-    agentId = list.agents.find((a) => a.name === AGENT_NAME)?.agent_id;
+    agentId = list.agents.find((a) => a.name === cfg.name)?.agent_id;
   }
   if (!agentId) {
-    const created = await el<{ agent_id: string }>("/v1/convai/agents/create", {
-      method: "POST",
-      body: JSON.stringify({
-        name: AGENT_NAME,
-        tags: ["website-demo"],
-        conversation_config: {
-          agent: {
-            first_message: "Hi, thanks for calling. How can I help you today?",
-            language: "en",
-            prompt: { prompt: "You are a friendly, professional receptionist on a phone call. Keep replies short and natural." },
-          },
-          tts: { voice_id: DEFAULT_VOICES.sarah, model_id: TTS_MODEL },
-          conversation: { max_duration_seconds: 330 },
-        },
-        platform_settings: { overrides },
-      }),
-    });
-    agentId = created.agent_id;
+    const base = {
+      agent: {
+        first_message: "Hi, thanks for calling. How can I help you today?",
+        language: cfg.language,
+        prompt: { prompt: "You are a friendly, professional receptionist on a phone call. Keep replies short and natural." },
+      },
+      tts: { voice_id: DEFAULT_VOICES.sarah, model_id: cfg.model },
+    };
+    const create = (conversation_config: object) =>
+      el<{ agent_id: string }>("/v1/convai/agents/create", {
+        method: "POST",
+        body: JSON.stringify({ name: cfg.name, conversation_config, platform_settings: { overrides } }),
+      });
+    try {
+      agentId = (await create({ ...base, conversation: { max_duration_seconds: 330 } })).agent_id;
+    } catch (e) {
+      // Retry with the bare minimum if the API rejected an optional field.
+      if (!(e instanceof ElevenLabsError) || e.status !== 422) throw e;
+      console.warn("[voice-session] create retry", e.detail);
+      agentId = (await create(base)).agent_id;
+    }
   }
-  // Always make sure overrides are on and the voice model is multilingual (also repairs an agent edited by hand).
+  // Make sure overrides are on (also repairs an agent edited by hand).
   await el(`/v1/convai/agents/${agentId}`, {
     method: "PATCH",
-    body: JSON.stringify({ conversation_config: { tts: { model_id: TTS_MODEL } }, platform_settings: { overrides } }),
+    body: JSON.stringify({ platform_settings: { overrides } }),
   });
   return agentId;
 }
 
-export function getDemoAgentId() {
-  if (!agentPromise) {
-    agentPromise = findOrCreateAgent().catch((e) => {
-      agentPromise = null;
+export function getDemoAgentId(kind: AgentKind) {
+  if (!agentPromises[kind]) {
+    agentPromises[kind] = findOrCreateAgent(kind).catch((e) => {
+      delete agentPromises[kind];
       throw e;
     });
   }
-  return agentPromise;
+  return agentPromises[kind]!;
+}
+
+/** Plain-language reason for a failure, shown on the page so the site owner can fix setup issues. */
+export function explainError(e: unknown): string {
+  if (e instanceof ElevenLabsError) {
+    if (e.status === 401) {
+      return /permission|missing_permissions/i.test(e.detail)
+        ? `The ElevenLabs API key is missing a permission. Edit the key in ElevenLabs and allow ElevenLabs Agents (write) and Voices (read). Details: ${e.detail}`
+        : "The ElevenLabs API key was rejected. Check that ELEVENLABS_API_KEY in Vercel is copied exactly, with no spaces.";
+    }
+    if (e.status === 402 || /quota|credit|limit/i.test(e.detail)) return `Your ElevenLabs plan has run out of credits or agent minutes. Details: ${e.detail}`;
+    return `${e.message}: ${e.detail}`;
+  }
+  return e instanceof Error ? e.message : String(e);
 }
 
 export async function getConversationToken(agentId: string) {

@@ -47,6 +47,7 @@ const errorText: Record<string, string> = {
   mic: "We couldn't use your microphone. Please allow microphone access in your browser (look for the mic icon in the address bar) and press Call again.",
   not_configured: "Live calling is being switched on right now. Please check back shortly, or message us on WhatsApp and we'll call you with a live demo.",
   rate_limited: "You've made several demo calls in the last hour. Please try again a little later, or book a call and we'll set up a demo for your business.",
+  provider: "Our voice system couldn't start the call just now. Please try again in a minute, or message us on WhatsApp for a live demo.",
   generic: "The call couldn't connect. Please check your internet connection and try again.",
 };
 
@@ -136,12 +137,13 @@ function DemoCenter() {
         const res = await fetch("/api/voice-session", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ voice: args.voice.key, transport }),
+          body: JSON.stringify({ voice: args.voice.key, transport, language: args.language.code }),
         });
-        const data = (await res.json().catch(() => ({}))) as { conversationToken?: string; signedUrl?: string; voiceId?: string; error?: string };
+        const data = (await res.json().catch(() => ({}))) as { conversationToken?: string; signedUrl?: string; voiceId?: string; error?: string; detail?: string };
         if (phaseRef.current !== "connecting") return;
         if (!res.ok || !data.voiceId) {
-          setError(errorText[data.error ?? ""] ?? errorText.generic);
+          if (data.detail) console.error("[voice demo] setup problem:", data.detail);
+          setError(data.error === "provider_error" ? errorText.provider : (errorText[data.error ?? ""] ?? errorText.generic));
           setP("idle");
           return;
         }
