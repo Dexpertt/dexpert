@@ -95,22 +95,30 @@ All copy lives in `src/content/*.ts` and `src/lib/site.ts`. Search the project f
 
 ---
 
-## 5. Voice agent demo recordings
+## 5. Live AI voice agent demo (ElevenLabs)
 
-`/voice-agent-demo` runs three scripted calls (dental clinic, restaurant, real estate). Agent lines currently use the visitor's built-in browser voice. To use real recordings:
+`/voice-agent-demo` is a real two-way phone-style call in the browser. The visitor picks an industry (dental, restaurant, real estate, salon, hotel, gym, car service or an outbound sales follow-up), one of six male/female voices and a language (English, Hindi, Spanish, French, German, Arabic, Portuguese, Italian), presses Call and talks with their microphone. The agent answers questions from the sample business facts, books slots and handles objections.
 
-1. Record one MP3 for each agent line. The file name is the node id in `src/content/voice-demos.ts`, for example:
-   ```
-   public/audio/demos/dental/greet.mp3
-   public/audio/demos/dental/book.mp3
-   public/audio/demos/restaurant/confirm730.mp3
-   public/audio/demos/real-estate/visit.mp3
-   ```
-2. Set `hasRecordings: true` for that demo in `src/content/voice-demos.ts`.
+**Setup (one environment variable):**
 
-Any missing file falls back to the browser voice automatically. Keep files small (mono, 64–96 kbps).
+1. Create an account at [elevenlabs.io](https://elevenlabs.io) and open **Developers → API keys**. Create a key (unrestricted is simplest; if you restrict it, allow ElevenLabs Agents write and Voices read).
+2. In Vercel → Project → Settings → Environment Variables, add `ELEVENLABS_API_KEY` for Production (and Preview if you like), then redeploy.
 
-The microphone is optional. When the visitor allows it, the waveform reacts to their voice and, in Chrome, Edge and Safari, speech recognition picks the matching reply. Nothing is recorded or sent to the server. `next.config.ts` sets `Permissions-Policy: microphone=(self)` so this works on your own domain only.
+On the first call the server finds or creates two agents in your ElevenLabs account ("D Expert Website Demo Agent (English)" and "(Multilingual)", because ElevenLabs needs a different voice model for English and other languages) and switches on the per-call overrides they need. You don't have to configure anything in the ElevenLabs dashboard.
+
+**Check the setup:** open `https://<your-site>/api/voice-session?check=1`. It runs a real test and says in plain words what is wrong (key missing, key rejected, missing permission, no credits) or "Live voice demo is ready."
+
+Optional settings:
+
+| Variable | What it does |
+| --- | --- |
+| `ELEVENLABS_AGENT_ID`, `ELEVENLABS_AGENT_ID_MULTILINGUAL` | Use agents you created yourself instead of the auto-created ones. |
+| `ELEVENLABS_TTS_MODEL_EN`, `ELEVENLABS_TTS_MODEL` | Voice models for English (default `eleven_flash_v2`) and other languages (default `eleven_flash_v2_5`). |
+| `ELEVENLABS_VOICE_SARAH`, `_JESSICA`, `_ALICE`, `_CHRIS`, `_ERIC`, `_GEORGE` | Swap any voice for another ElevenLabs voice ID, for example an Indian-accent voice from the Voice Library. |
+| `VOICE_DEMO_CALLS_PER_HOUR` | Calls allowed per visitor per hour (default 12). |
+| `ELEVENLABS_API_BASE` | Regional API host, e.g. `https://api.in.residency.elevenlabs.io`. |
+
+Edit what each sample business knows (prices, timings, slots) in `src/content/voice-agents.ts`. Calls end automatically after 5 minutes so demo visitors can't run up your ElevenLabs usage. Without the key the page still renders and shows a WhatsApp fallback instead of connecting.
 
 ---
 
